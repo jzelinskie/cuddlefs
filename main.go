@@ -9,12 +9,20 @@ import (
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
 )
+
+func contains(ys []string, x string) bool {
+	for _, y := range ys {
+		if x == y {
+			return true
+		}
+	}
+	return false
+}
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", filepath.Join(os.ExpandEnv("$HOME"), ".kube", "config"), "path to kubeconfig")
@@ -101,15 +109,6 @@ func (p Pods) podNames() []string {
 	return names
 }
 
-func (p Pods) inPodNames(name string) bool {
-	for _, podName := range p.podNames() {
-		if name == podName {
-			return true
-		}
-	}
-	return false
-}
-
 func (p Pods) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	podNames := p.podNames()
 	entries := make([]fuse.Dirent, 0, len(podNames))
@@ -120,7 +119,7 @@ func (p Pods) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 }
 
 func (p Pods) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if p.inPodNames(name) {
+	if contains(p.podNames(), name) {
 		return Resource{p.clientset, p.namespace, "pod", name}, nil
 	}
 	return nil, fuse.ENOENT
@@ -157,15 +156,6 @@ func (n Namespaces) nsNames() []string {
 	return names
 }
 
-func (n Namespaces) inNamespaceNames(name string) bool {
-	for _, nsName := range n.nsNames() {
-		if name == nsName {
-			return true
-		}
-	}
-	return false
-}
-
 func (n Namespaces) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	nsNames := n.nsNames()
 	entries := make([]fuse.Dirent, 0, len(nsNames))
@@ -175,9 +165,9 @@ func (n Namespaces) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	return entries, nil
 }
 
-func (ns Namespaces) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if ns.inNamespaceNames(name) {
-		return Resources{ns.clientset, name}, nil
+func (n Namespaces) Lookup(ctx context.Context, name string) (fs.Node, error) {
+	if contains(n.nsNames(), name) {
+		return Resources{n.clientset, name}, nil
 	}
 	return nil, fuse.ENOENT
 }
@@ -187,17 +177,42 @@ type Resources struct {
 	namespace string
 }
 
-func (d Resources) Attr(ctx context.Context, attr *fuse.Attr) error {
+func (r Resources) resourceNames() []string {
+	resourceListList, _ := r.clientset.ServerResources()
+	nameSet := make(map[string]struct{}, len(resourceListList))
+	for _, resourceList := range resourceListList {
+		for _, resource := range resourceList.APIResources {
+			if resource.Namespaced && !IsSubresource(resource) {
+				nameSet[resource.Name] = struct{}{}
+			}
+		}
+	}
+
+	names := make([]string, 0, len(nameSet))
+	for name := range nameSet {
+		names = append(names, name)
+	}
+
+	return names
+}
+
+func (r Resources) Attr(ctx context.Context, attr *fuse.Attr) error {
 	attr.Mode = os.ModeDir
 	return nil
 }
 
 func (r Resources) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	return []fuse.Dirent{{Name: "pods", Type: fuse.DT_Dir}}, nil
+	resourceNames := r.resourceNames()
+	entries := make([]fuse.Dirent, 0, len(resourceNames))
+	for _, resource := range resourceNames {
+		entries = append(entries, fuse.Dirent{Name: resource, Type: fuse.DT_Dir})
+	}
+	return entries, nil
 }
 
 func (r Resources) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if name == "pods" {
+	if contains(r.resourceNames(), name) {
+		// TODO(jzelinskie): everything is not a pod ffs
 		return Pods{r.clientset, r.namespace}, nil
 	}
 
