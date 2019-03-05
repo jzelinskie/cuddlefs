@@ -2,13 +2,12 @@ package main
 
 import (
 	"context"
-	"flag"
-	"log"
 	"os"
 	"path/filepath"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
+	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -19,40 +18,60 @@ import (
 )
 
 func main() {
-	kubeconfig := flag.String("kubeconfig", filepath.Join(os.ExpandEnv("$HOME"), ".kube", "config"), "path to kubeconfig")
-	mountpoint := flag.String("mountpoint", "./cluster", "path where the filesystem will be mounted")
-	flag.Parse()
+	var rootCmd = &cobra.Command{
+		Use:   "cuddlefs [flags]",
+		Short: "k8s filesystem",
+		Long:  "cuddlefs is a userspace filesystem for Kubernetes",
+		RunE:  rootRunFunc,
+	}
 
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	rootCmd.Flags().String("mount", "./cluster", "path where the filesystem will be mounted")
+	rootCmd.Flags().String("kubeconfig", filepath.Join(os.ExpandEnv("$HOME"), ".kube", "config"), "path to kubeconfig")
+
+	rootCmd.Execute()
+}
+
+func mustGetString(cmd *cobra.Command, flag string) string {
+	value, err := cmd.Flags().GetString(flag)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
+	}
+	return value
+}
+
+func rootRunFunc(cmd *cobra.Command, args []string) error {
+	config, err := clientcmd.BuildConfigFromFlags("", mustGetString(cmd, "kubeconfig"))
+	if err != nil {
+		return err
 	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	c, err := fuse.Mount(
-		*mountpoint,
+		mustGetString(cmd, "mount"),
 		fuse.FSName("cuddlefs"),
 		fuse.Subtype("cuddlefs"),
 		fuse.LocalVolume(),
 		fuse.VolumeName("Kubernetes"),
 	)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer c.Close()
 
 	err = fs.Serve(c, FS{clientset})
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	<-c.Ready
 	if err := c.MountError; err != nil {
-		log.Fatal(err)
+		return err
 	}
+
+	return nil
 }
 
 type Resource struct {
