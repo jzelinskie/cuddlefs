@@ -1,4 +1,4 @@
-module cuddlefs
+module github.com/jzelinskie/cuddlefs
 
 require (
 	bazil.org/fuse v0.0.0-20180421153158-65cc252bf669

@@ -13,20 +13,14 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/yaml"
-)
 
-func contains(ys []string, x string) bool {
-	for _, y := range ys {
-		if x == y {
-			return true
-		}
-	}
-	return false
-}
+	"github.com/jzelinskie/cuddlefs/pkg/kubeutil"
+	"github.com/jzelinskie/cuddlefs/pkg/strutil"
+)
 
 func main() {
 	kubeconfig := flag.String("kubeconfig", filepath.Join(os.ExpandEnv("$HOME"), ".kube", "config"), "path to kubeconfig")
-	mountpoint := flag.String("mountpoint", "./kfs", "path where the filesystem will be mounted")
+	mountpoint := flag.String("mountpoint", "./cluster", "path where the filesystem will be mounted")
 	flag.Parse()
 
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
@@ -40,8 +34,8 @@ func main() {
 
 	c, err := fuse.Mount(
 		*mountpoint,
-		fuse.FSName("Kubernetes"),
-		fuse.Subtype("k8sfs"),
+		fuse.FSName("cuddlefs"),
+		fuse.Subtype("cuddlefs"),
 		fuse.LocalVolume(),
 		fuse.VolumeName("Kubernetes"),
 	)
@@ -96,21 +90,12 @@ func (Pods) Attr(ctx context.Context, attr *fuse.Attr) error {
 	return nil
 }
 
-func (p Pods) podNames() []string {
-	podList, err := p.clientset.CoreV1().Pods(p.namespace).List(metav1.ListOptions{})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	names := make([]string, 0, len(podList.Items))
-	for _, pod := range podList.Items {
-		names = append(names, pod.Name)
-	}
-	return names
-}
-
 func (p Pods) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	podNames := p.podNames()
+	podNames, err := kubeutil.PodNames(p.clientset.CoreV1().Pods(p.namespace).List(metav1.ListOptions{}))
+	if err != nil {
+		return nil, err
+	}
+
 	entries := make([]fuse.Dirent, 0, len(podNames))
 	for _, name := range podNames {
 		entries = append(entries, fuse.Dirent{Name: name, Type: fuse.DT_File})
@@ -119,7 +104,12 @@ func (p Pods) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 }
 
 func (p Pods) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if contains(p.podNames(), name) {
+	podNames, err := kubeutil.PodNames(p.clientset.CoreV1().Pods(p.namespace).List(metav1.ListOptions{}))
+	if err != nil {
+		return nil, err
+	}
+
+	if strutil.Contains(podNames, name) {
 		return Resource{p.clientset, p.namespace, "pod", name}, nil
 	}
 	return nil, fuse.ENOENT
@@ -142,22 +132,12 @@ func (n Namespaces) Attr(ctx context.Context, attr *fuse.Attr) error {
 	return nil
 }
 
-func (n Namespaces) nsNames() []string {
-	nsList, err := n.clientset.CoreV1().Namespaces().List(metav1.ListOptions{})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	names := make([]string, 0, len(nsList.Items))
-	for _, ns := range nsList.Items {
-		names = append(names, ns.Name)
-	}
-
-	return names
-}
-
 func (n Namespaces) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	nsNames := n.nsNames()
+	nsNames, err := kubeutil.NamespaceNames(n.clientset.CoreV1().Namespaces().List(metav1.ListOptions{}))
+	if err != nil {
+		return nil, err
+	}
+
 	entries := make([]fuse.Dirent, 0, len(nsNames))
 	for _, name := range nsNames {
 		entries = append(entries, fuse.Dirent{Name: name, Type: fuse.DT_Dir})
@@ -166,43 +146,33 @@ func (n Namespaces) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 }
 
 func (n Namespaces) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if contains(n.nsNames(), name) {
-		return Resources{n.clientset, name}, nil
+	nsNames, err := kubeutil.NamespaceNames(n.clientset.CoreV1().Namespaces().List(metav1.ListOptions{}))
+	if err != nil {
+		return nil, err
+	}
+
+	if strutil.Contains(nsNames, name) {
+		return NamespacedResources{n.clientset, name}, nil
 	}
 	return nil, fuse.ENOENT
 }
 
-type Resources struct {
+type NamespacedResources struct {
 	clientset *kubernetes.Clientset
 	namespace string
 }
 
-func (r Resources) resourceNames() []string {
-	resourceListList, _ := r.clientset.ServerResources()
-	nameSet := make(map[string]struct{}, len(resourceListList))
-	for _, resourceList := range resourceListList {
-		for _, resource := range resourceList.APIResources {
-			if resource.Namespaced && !IsSubresource(resource) {
-				nameSet[resource.Name] = struct{}{}
-			}
-		}
-	}
-
-	names := make([]string, 0, len(nameSet))
-	for name := range nameSet {
-		names = append(names, name)
-	}
-
-	return names
-}
-
-func (r Resources) Attr(ctx context.Context, attr *fuse.Attr) error {
+func (r NamespacedResources) Attr(ctx context.Context, attr *fuse.Attr) error {
 	attr.Mode = os.ModeDir
 	return nil
 }
 
-func (r Resources) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	resourceNames := r.resourceNames()
+func (r NamespacedResources) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+	resourceNames, err := kubeutil.NamespacedResourceNames(r.clientset.ServerResources())
+	if err != nil {
+		return nil, err
+	}
+
 	entries := make([]fuse.Dirent, 0, len(resourceNames))
 	for _, resource := range resourceNames {
 		entries = append(entries, fuse.Dirent{Name: resource, Type: fuse.DT_Dir})
@@ -210,8 +180,13 @@ func (r Resources) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	return entries, nil
 }
 
-func (r Resources) Lookup(ctx context.Context, name string) (fs.Node, error) {
-	if contains(r.resourceNames(), name) {
+func (r NamespacedResources) Lookup(ctx context.Context, name string) (fs.Node, error) {
+	resourceNames, err := kubeutil.NamespacedResourceNames(r.clientset.ServerResources())
+	if err != nil {
+		return nil, err
+	}
+
+	if strutil.Contains(resourceNames, name) {
 		// TODO(jzelinskie): everything is not a pod ffs
 		return Pods{r.clientset, r.namespace}, nil
 	}
