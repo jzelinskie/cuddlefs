@@ -1,4 +1,4 @@
-# cuddlefs
+# ![cuddlefs](https://user-images.githubusercontent.com/343539/53932129-3f0a6b00-4066-11e9-848a-5660014aaa4c.png)
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/jzelinskie/cuddlefs?style=flat-square)](https://goreportcard.com/report/github.com/jzelinskie/cuddlefs)
 [![Build Status Travis](https://img.shields.io/travis/jzelinskie/cuddlefs.svg?style=flat-square&&branch=master)](https://travis-ci.org/jzelinskie/cuddlefs)
