@@ -2,7 +2,7 @@ module github.com/jzelinskie/cuddlefs
 
 require (
 	bazil.org/fuse v0.0.0-20180421153158-65cc252bf669
-	github.com/davecgh/go-spew v1.1.1
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-logr/logr v0.1.0 // indirect
 	github.com/go-logr/zapr v0.1.0 // indirect
@@ -27,7 +27,7 @@ require (
 	github.com/stretchr/testify v1.2.2 // indirect
 	go.uber.org/atomic v1.3.2 // indirect
 	go.uber.org/multierr v1.1.0 // indirect
-	go.uber.org/zap v1.9.1 // indirect
+	go.uber.org/zap v1.9.1
 	golang.org/x/crypto v0.0.0-20190228161510-8dd112bcdc25 // indirect
 	golang.org/x/net v0.0.0-20190301231341-16b79f2e4e95 // indirect
 	golang.org/x/oauth2 v0.0.0-20190226205417-e64efc72b421 // indirect
