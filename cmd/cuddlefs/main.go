@@ -12,6 +12,7 @@ import (
 
 	cuddlefs "github.com/jzelinskie/cuddlefs/pkg/fs"
 	"github.com/jzelinskie/cuddlefs/pkg/kubeutil"
+	"github.com/jzelinskie/cuddlefs/pkg/strutil"
 )
 
 func main() {
@@ -22,7 +23,7 @@ func main() {
 		RunE:  rootRunFunc,
 	}
 
-	rootCmd.Flags().String("mount", "./cluster", "path where the filesystem will be mounted")
+	rootCmd.Flags().String("mountName", "current-context", "path where the filesystem will be mounted")
 	rootCmd.Flags().String("volumeName", "current-context", "volume name for the mounted filesystem")
 	rootCmd.Flags().String("kubeconfig", filepath.Join(os.ExpandEnv("$HOME"), ".kube", "config"), "path to kubeconfig")
 	rootCmd.Flags().Bool("debug", false, "enable debug logging")
@@ -79,18 +80,18 @@ func rootRunFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	volumeName := mustGetString(logger, cmd, "volumeName")
-	if volumeName == "current-context" || volumeName == "" {
-		volumeName, err = kubeutil.ContextName(kubeconfigPath)
-		if err != nil {
-			logger.Warn("failed to parse context name from kubeconfig", zap.Error(err))
-			return err
-
-		}
+	currentContext, err := kubeutil.ContextName(kubeconfigPath)
+	if err != nil {
+		logger.Warn("failed to parse context name from kubeconfig", zap.Error(err))
+		return err
 	}
+	logger.Debug("parsed current-context", zap.String("value", currentContext))
+
+	mountName := strutil.Default(mustGetString(logger, cmd, "mountName"), currentContext, "", "current-context")
+	volumeName := strutil.Default(mustGetString(logger, cmd, "volumeName"), currentContext, "", "current-context")
 
 	c, err := fuse.Mount(
-		mustGetString(logger, cmd, "mount"),
+		mountName,
 		fuse.FSName("cuddlefs"),
 		fuse.Subtype("cuddlefs"),
 		fuse.LocalVolume(),

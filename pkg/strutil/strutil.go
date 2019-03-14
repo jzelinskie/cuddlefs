@@ -22,3 +22,13 @@ func Dedup(xs []string) []string {
 
 	return ys
 }
+
+func Default(val, fallback string, zeroValues ...string) string {
+	for _, zeroValue := range zeroValues {
+		if val == zeroValue {
+			return fallback
+		}
+	}
+
+	return val
+}
