@@ -7,11 +7,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	"github.com/jzelinskie/cuddlefs/pkg/strutil"
 )
+
+// ContextName returns the name of cluster used in the current context.
+func ContextName(kubeconfigPath string) (string, error) {
+	cfg, err := clientcmd.LoadFromFile(kubeconfigPath)
+	if err != nil {
+		return "", err
+	}
+	return cfg.CurrentContext, nil
+}
 
 type Client struct {
 	client.Client

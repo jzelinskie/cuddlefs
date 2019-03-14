@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	cuddlefs "github.com/jzelinskie/cuddlefs/pkg/fs"
+	"github.com/jzelinskie/cuddlefs/pkg/kubeutil"
 )
 
 func main() {
@@ -22,17 +23,22 @@ func main() {
 	}
 
 	rootCmd.Flags().String("mount", "./cluster", "path where the filesystem will be mounted")
+	rootCmd.Flags().String("volumeName", "current-context", "volume name for the mounted filesystem")
 	rootCmd.Flags().String("kubeconfig", filepath.Join(os.ExpandEnv("$HOME"), ".kube", "config"), "path to kubeconfig")
 	rootCmd.Flags().Bool("debug", false, "enable debug logging")
 
 	rootCmd.Execute()
 }
 
-func mustGetString(cmd *cobra.Command, flag string) string {
+func mustGetString(logger *zap.Logger, cmd *cobra.Command, flag string) string {
 	value, err := cmd.Flags().GetString(flag)
 	if err != nil {
 		panic(err)
 	}
+	logger.Debug("parsed flag",
+		zap.String("name", flag),
+		zap.String("value", value),
+	)
 	return value
 }
 
@@ -58,11 +64,7 @@ func rootRunFunc(cmd *cobra.Command, args []string) error {
 	}
 	defer logger.Sync()
 
-	kubeconfigPath := mustGetString(cmd, "kubeconfig")
-	logger.Debug("parsed env var",
-		zap.String("name", "kubeconfig"),
-		zap.String("value", kubeconfigPath),
-	)
+	kubeconfigPath := mustGetString(logger, cmd, "kubeconfig")
 
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	if err != nil {
@@ -77,18 +79,22 @@ func rootRunFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	mountPath := mustGetString(cmd, "mount")
-	logger.Debug("parsed env var",
-		zap.String("name", "mount"),
-		zap.String("value", mountPath),
-	)
+	volumeName := mustGetString(logger, cmd, "volumeName")
+	if volumeName == "current-context" || volumeName == "" {
+		volumeName, err = kubeutil.ContextName(kubeconfigPath)
+		if err != nil {
+			logger.Warn("failed to parse context name from kubeconfig", zap.Error(err))
+			return err
+
+		}
+	}
 
 	c, err := fuse.Mount(
-		mountPath,
+		mustGetString(logger, cmd, "mount"),
 		fuse.FSName("cuddlefs"),
 		fuse.Subtype("cuddlefs"),
 		fuse.LocalVolume(),
-		fuse.VolumeName("Kubernetes"),
+		fuse.VolumeName(volumeName),
 	)
 	if err != nil {
 		return err
