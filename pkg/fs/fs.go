@@ -33,7 +33,40 @@ type RootDir struct {
 }
 
 func (d RootDir) Root() (fs.Node, error) {
-	return GroupsDir{d.logger, d.client}, nil
+	return ViewsDir{d.logger, d.client}, nil
+}
+
+type ViewsDir struct {
+	logger *zap.Logger
+	client *kubeutil.Client
+}
+
+func (d ViewsDir) Attr(ctx context.Context, attr *fuse.Attr) error {
+	attr.Mode = os.ModeDir
+	d.logger.Debug("attr on views dir",
+		zap.Uint32("mode", uint32(attr.Mode)),
+	)
+	return nil
+}
+
+func (d ViewsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+	views := []string{"by-gvk"}
+	d.logger.Debug("readdir on views dir",
+		zap.Strings("entries", views),
+	)
+	return StringsToDirents(views), nil
+}
+
+func (d ViewsDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
+	d.logger.Debug("lookup on views dir",
+		zap.String("name", name),
+	)
+
+	if name == "by-gvk" {
+		return GroupsDir{d.logger, d.client}, nil
+	}
+
+	return nil, fuse.ENOENT
 }
 
 type GroupsDir struct {
