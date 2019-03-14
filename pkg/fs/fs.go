@@ -1,8 +1,8 @@
 package fs
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 
 	"bazil.org/fuse"
@@ -10,23 +10,13 @@ import (
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	k8sjson "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/yaml"
 
 	"github.com/jzelinskie/cuddlefs/pkg/kubeutil"
 	"github.com/jzelinskie/cuddlefs/pkg/strutil"
 )
-
-func StringsToDirents(xs []string) []fuse.Dirent {
-	entries := make([]fuse.Dirent, 0, len(xs))
-	for _, x := range xs {
-		entries = append(entries, fuse.Dirent{Name: x, Type: fuse.DT_Dir})
-
-	}
-	return entries
-}
 
 func New(logger *zap.Logger, cfg *rest.Config) (fs.FS, error) {
 	client, err := kubeutil.NewClient(cfg)
@@ -83,6 +73,10 @@ func (d GroupsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 }
 
 func (d GroupsDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
+	d.logger.Debug("lookup on groups dir",
+		zap.String("name", name),
+	)
+
 	groupVersions, err := d.client.ServerPreferredResources()
 	if err != nil {
 		return nil, err
@@ -302,17 +296,21 @@ func (d ObjectDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	)
 
 	if name == "json" {
-		var buf bytes.Buffer
-		scheme := runtime.NewScheme()
-		err := k8sjson.NewSerializer(k8sjson.DefaultMetaFactory, scheme, scheme, true).Encode(d.u, &buf)
-		return &ObjectFile{d.logger, buf.Bytes()}, err
+		data, err := json.MarshalIndent(d.u, "", "  ")
+		d.logger.Debug("serialized JSON",
+			zap.String("JSON", string(data)),
+			zap.Error(err),
+		)
+		return &ObjectFile{d.logger, data}, err
 	}
 
 	if name == "yaml" {
-		var buf bytes.Buffer
-		scheme := runtime.NewScheme()
-		err := k8sjson.NewYAMLSerializer(k8sjson.DefaultMetaFactory, scheme, scheme).Encode(d.u, &buf)
-		return &ObjectFile{d.logger, buf.Bytes()}, err
+		data, err := yaml.Marshal(d.u)
+		d.logger.Debug("serialized YAML",
+			zap.String("YAML", string(data)),
+			zap.Error(err),
+		)
+		return &ObjectFile{d.logger, data}, err
 	}
 
 	return nil, fuse.ENOENT
