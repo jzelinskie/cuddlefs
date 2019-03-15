@@ -225,10 +225,53 @@ func (d ResourcesDir) Lookup(ctx context.Context, name string) (fs.Node, error) 
 				Version: version,
 				Kind:    resource.Kind,
 			}
-			return &ResourceDir{d.logger, d.client, "", gvk}, nil
+
+			ulist := &unstructured.UnstructuredList{}
+			ulist.SetGroupVersionKind(gvk)
+
+			err := d.client.List(ctx, nil, ulist)
+			if err != nil {
+				return nil, err
+			}
+
+			if resource.Namespaced {
+				return &ResourceNamespacesDir{d.logger, d.client, ulist}, nil
+			}
+			return &ResourceDir{d.logger, d.client, "", ulist}, nil
 		}
 	}
 
+	return nil, fuse.ENOENT
+}
+
+type ResourceNamespacesDir struct {
+	logger *zap.Logger
+	client *kubeutil.Client
+	ulist  *unstructured.UnstructuredList
+}
+
+func (d ResourceNamespacesDir) Attr(ctx context.Context, attr *fuse.Attr) error {
+	attr.Mode = os.ModeDir
+	d.logger.Debug("attr on resource namespaces dir",
+		zap.Uint32("mode", uint32(attr.Mode)),
+	)
+	return nil
+}
+
+func (d ResourceNamespacesDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+	entries := kubeutil.Namespaces(d.ulist)
+	d.logger.Debug("readdir on resource dir",
+		zap.Strings("entries", entries),
+	)
+	return StringsToDirents(entries), nil
+}
+
+func (d ResourceNamespacesDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
+	for _, namespace := range kubeutil.Namespaces(d.ulist) {
+		if name == namespace {
+			return &ResourceDir{d.logger, d.client, namespace, d.ulist}, nil
+		}
+	}
 	return nil, fuse.ENOENT
 }
 
@@ -236,7 +279,7 @@ type ResourceDir struct {
 	logger    *zap.Logger
 	client    *kubeutil.Client
 	namespace string
-	gvk       schema.GroupVersionKind
+	ulist     *unstructured.UnstructuredList
 }
 
 func (d ResourceDir) Attr(ctx context.Context, attr *fuse.Attr) error {
@@ -248,50 +291,32 @@ func (d ResourceDir) Attr(ctx context.Context, attr *fuse.Attr) error {
 }
 
 func (d ResourceDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	u := &unstructured.UnstructuredList{}
-	u.SetGroupVersionKind(d.gvk)
-
-	err := d.client.List(ctx, nil, u)
-	if err != nil {
-		return nil, err
-	}
-
-	names := make([]string, 0, len(u.Items))
-	for _, item := range u.Items {
-		names = append(names, item.GetName())
+	entries := make([]string, 0, len(d.ulist.Items))
+	for _, item := range d.ulist.Items {
+		if d.namespace == "" || d.namespace == item.GetNamespace() {
+			entries = append(entries, item.GetName())
+		}
 	}
 
 	d.logger.Debug("readdir on resource dir",
-		zap.Strings("entries", names),
+		zap.Strings("entries", entries),
 	)
 
-	return StringsToDirents(names), nil
+	return StringsToDirents(entries), nil
 }
 
 func (d ResourceDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 	d.logger.Debug("lookup on resource dir",
 		zap.String("name", name),
-		zap.String("group", d.gvk.Group),
-		zap.String("version", d.gvk.Version),
-		zap.String("kind", d.gvk.Kind),
 	)
 
-	ulist := &unstructured.UnstructuredList{}
-	ulist.SetGroupVersionKind(d.gvk)
-
-	err := d.client.List(ctx, nil, ulist)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, item := range ulist.Items {
+	for _, item := range d.ulist.Items {
 		if name == item.GetName() {
 			// See if there's a better type than the generic Object type.
-			if fn, ok := specificDirs[d.gvk]; ok {
+			gvk := item.GroupVersionKind()
+			if fn, ok := specificDirs[gvk]; ok {
 				d.logger.Debug("found a more specific directory type",
-					zap.String("group", d.gvk.Group),
-					zap.String("version", d.gvk.Version),
-					zap.String("kind", d.gvk.Kind),
+					zap.Reflect("gvk", gvk),
 				)
 
 				return fn(d.logger, d.client, &item), nil

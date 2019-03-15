@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
@@ -23,6 +22,15 @@ func ContextName(kubeconfigPath string) (string, error) {
 		return "", err
 	}
 	return cfg.CurrentContext, nil
+}
+
+// Namespaces returns the list of unique namespaces in an unstructured list.
+func Namespaces(ulist *unstructured.UnstructuredList) []string {
+	namespaces := make([]string, 0, len(ulist.Items))
+	for _, item := range ulist.Items {
+		namespaces = append(namespaces, item.GetNamespace())
+	}
+	return strutil.Dedup(namespaces)
 }
 
 type Client struct {
@@ -63,71 +71,6 @@ func SplitGroupVersion(groupVersion string) (string, string) {
 		version = "v1"
 	}
 	return group, version
-}
-
-func IsSubresource(res metav1.APIResource) bool {
-	parts := strings.Split(res.Name, "/")
-	return len(parts) > 1
-}
-
-func NamespaceNames(list *corev1.NamespaceList, err error) ([]string, error) {
-	if err != nil {
-		return nil, err
-	}
-
-	names := make([]string, 0, len(list.Items))
-	for _, ns := range list.Items {
-		names = append(names, ns.Name)
-	}
-
-	return strutil.Dedup(names), nil
-}
-
-func PodNames(list *corev1.PodList, err error) ([]string, error) {
-	if err != nil {
-		return nil, err
-	}
-
-	names := make([]string, 0, len(list.Items))
-	for _, ns := range list.Items {
-		names = append(names, ns.Name)
-	}
-
-	return strutil.Dedup(names), nil
-}
-
-func NamespacedResourceNames(resourceLists []*metav1.APIResourceList, err error) ([]string, error) {
-	if err != nil {
-		return nil, err
-	}
-
-	names := make([]string, 0)
-	for _, listing := range resourceLists {
-		for _, resource := range listing.APIResources {
-			if resource.Namespaced && !IsSubresource(resource) {
-				names = append(names, resource.Name)
-			}
-		}
-	}
-
-	return strutil.Dedup(names), nil
-}
-
-func ClusterResourceNames(resourceLists []*metav1.APIResourceList, err error) ([]string, error) {
-	if err != nil {
-		return nil, err
-	}
-
-	names := make([]string, 0)
-	for _, listing := range resourceLists {
-		for _, resource := range listing.APIResources {
-			if !resource.Namespaced && !IsSubresource(resource) {
-				names = append(names, resource.Name)
-			}
-		}
-	}
-
-	return strutil.Dedup(names), nil
 }
 
 func UnstructuredToConfigMap(u *unstructured.Unstructured) (*corev1.ConfigMap, error) {
