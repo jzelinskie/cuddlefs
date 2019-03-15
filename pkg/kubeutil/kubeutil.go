@@ -1,3 +1,5 @@
+// Package kubeutil implements a collection of utility functions to simplify
+// various manipulations of Kubernetes data.
 package kubeutil
 
 import (
@@ -15,8 +17,8 @@ import (
 	"github.com/jzelinskie/cuddlefs/pkg/strutil"
 )
 
-// ContextName returns the name of cluster used in the current context.
-func ContextName(kubeconfigPath string) (string, error) {
+// CurrentContextName returns the name of cluster used in the current context.
+func CurrentContextName(kubeconfigPath string) (string, error) {
 	cfg, err := clientcmd.LoadFromFile(kubeconfigPath)
 	if err != nil {
 		return "", err
@@ -33,11 +35,14 @@ func Namespaces(ulist *unstructured.UnstructuredList) []string {
 	return strutil.Dedup(namespaces)
 }
 
+// Client extends the Kubernetes client used in sigs.k8s.io/controller-runtime,
+// but additionally embeds a discovery client.
 type Client struct {
 	client.Client
 	*discovery.DiscoveryClient
 }
 
+// NewClient initializes a new Kubernetes client.
 func NewClient(cfg *rest.Config) (*Client, error) {
 	mapper, err := apiutil.NewDiscoveryRESTMapper(cfg)
 	if err != nil {
@@ -57,6 +62,8 @@ func NewClient(cfg *rest.Config) (*Client, error) {
 	return &Client{client, dclient}, nil
 }
 
+// SplitGroupVersion parses an "apiVersion" string and returns the group and
+// version separately.
 func SplitGroupVersion(groupVersion string) (string, string) {
 	parts := strings.Split(groupVersion, "/")
 	var group, version string
@@ -73,6 +80,8 @@ func SplitGroupVersion(groupVersion string) (string, string) {
 	return group, version
 }
 
+// UnstructuredToConfigMap casts an unstructured object into a ConfigMap
+// by serializing to JSON and deserializing into a ConfigMap.
 func UnstructuredToConfigMap(u *unstructured.Unstructured) (*corev1.ConfigMap, error) {
 	data, err := json.Marshal(u)
 	if err != nil {

@@ -84,7 +84,7 @@ func rootRunFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	currentContext, err := kubeutil.ContextName(kubeconfigPath)
+	currentContext, err := kubeutil.CurrentContextName(kubeconfigPath)
 	if err != nil {
 		logger.Warn("failed to parse context name from kubeconfig", zap.Error(err))
 		return err
