@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
@@ -56,7 +58,9 @@ func rootRunFunc(cmd *cobra.Command, args []string) error {
 	var err error
 	if mustGetBool(cmd, "debug") {
 		logger, err = zap.NewDevelopment()
-
+		fuse.Debug = func(msg interface{}) {
+			logger.Debug("fuse", zap.Reflect("msg", msg))
+		}
 	} else {
 		logger, err = zap.NewProduction()
 	}
@@ -101,6 +105,19 @@ func rootRunFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer c.Close()
+
+	quit := make(chan os.Signal)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		for range quit {
+			logger.Info("received interrupt")
+			fuse.Unmount(mountName)
+			if err != nil {
+				logger.Error("failure unmounting", zap.Error(err))
+			}
+		}
+	}()
 
 	err = fs.Serve(c, cfs)
 	if err != nil {
