@@ -8,6 +8,7 @@ import (
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
 	"go.uber.org/zap"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -257,8 +258,7 @@ func (d ResourceDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 
 	names := make([]string, 0, len(u.Items))
 	for _, item := range u.Items {
-		metadata := item.Object["metadata"].(map[string]interface{})
-		names = append(names, metadata["name"].(string))
+		names = append(names, item.GetName())
 	}
 
 	d.logger.Debug("readdir on resource dir",
@@ -276,18 +276,26 @@ func (d ResourceDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 		zap.String("kind", d.gvk.Kind),
 	)
 
-	u := &unstructured.UnstructuredList{}
-	u.SetGroupVersionKind(d.gvk)
+	ulist := &unstructured.UnstructuredList{}
+	ulist.SetGroupVersionKind(d.gvk)
 
-	err := d.client.List(ctx, nil, u)
+	err := d.client.List(ctx, nil, ulist)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, item := range u.Items {
-		metadata := item.Object["metadata"].(map[string]interface{})
-		itemName := metadata["name"].(string)
-		if name == itemName {
+	for _, item := range ulist.Items {
+		if name == item.GetName() {
+			// See if there's a better type than the generic Object type.
+			if fn, ok := specificDirs[d.gvk]; ok {
+				d.logger.Debug("found a more specific directory type",
+					zap.String("group", d.gvk.Group),
+					zap.String("version", d.gvk.Version),
+					zap.String("kind", d.gvk.Kind),
+				)
+
+				return fn(d.logger, d.client, &item), nil
+			}
 			return ObjectDir{d.logger, d.client, &item}, nil
 		}
 	}
@@ -311,10 +319,6 @@ func (d ObjectDir) Attr(ctx context.Context, attr *fuse.Attr) error {
 }
 
 func (d ObjectDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
-	entries := make([]fuse.Dirent, 0, 2)
-	entries = append(entries, fuse.Dirent{Name: "yaml", Type: fuse.DT_File})
-	entries = append(entries, fuse.Dirent{Name: "json", Type: fuse.DT_File})
-
 	files := []string{"yaml", "json"}
 	d.logger.Debug("readdir on object dir",
 		zap.Strings("entries", files),
@@ -334,7 +338,7 @@ func (d ObjectDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 			zap.String("JSON", string(data)),
 			zap.Error(err),
 		)
-		return &ObjectFile{d.logger, data}, err
+		return &File{d.logger, data}, err
 	}
 
 	if name == "yaml" {
@@ -343,26 +347,132 @@ func (d ObjectDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
 			zap.String("YAML", string(data)),
 			zap.Error(err),
 		)
-		return &ObjectFile{d.logger, data}, err
+		return &File{d.logger, data}, err
 	}
 
 	return nil, fuse.ENOENT
 }
 
-type ObjectFile struct {
+type File struct {
 	logger   *zap.Logger
 	contents []byte
 }
 
-func (f *ObjectFile) Attr(ctx context.Context, attr *fuse.Attr) error {
+func (f *File) Attr(ctx context.Context, attr *fuse.Attr) error {
 	attr.Size = uint64(len(f.contents))
-	f.logger.Debug("attr on object file",
+	f.logger.Debug("attr on file",
 		zap.Uint32("mode", uint32(attr.Mode)),
 		zap.Uint64("size", attr.Size),
 	)
 	return nil
 }
 
-func (f *ObjectFile) ReadAll(ctx context.Context) ([]byte, error) {
+func (f *File) ReadAll(ctx context.Context) ([]byte, error) {
+	f.logger.Debug("read on file")
 	return f.contents, nil
+}
+
+type SpecificObjectConstructor func(*zap.Logger, *kubeutil.Client, *unstructured.Unstructured) SpecificObjectDir
+
+type SpecificObjectDir interface {
+	fs.Node
+	fs.HandleReadDirAller
+}
+
+var specificDirs = map[schema.GroupVersionKind]SpecificObjectConstructor{
+	{Group: "", Version: "v1", Kind: "ConfigMap"}: NewConfigMapDir,
+}
+
+func NewConfigMapDir(logger *zap.Logger, client *kubeutil.Client, u *unstructured.Unstructured) SpecificObjectDir {
+	cm, err := kubeutil.UnstructuredToConfigMap(u)
+	if err != nil {
+		panic(err)
+	}
+	return ConfigMapDir{logger, client, cm}
+}
+
+type ConfigMapDir struct {
+	logger *zap.Logger
+	client *kubeutil.Client
+	cm     *corev1.ConfigMap
+}
+
+func (d ConfigMapDir) Attr(ctx context.Context, attr *fuse.Attr) error {
+	attr.Mode = os.ModeDir
+	d.logger.Debug("attr on configmap dir",
+		zap.Uint32("mode", uint32(attr.Mode)),
+	)
+
+	return nil
+}
+
+func (d ConfigMapDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+	return StringsToDirents([]string{"data", "yaml", "json"}), nil
+}
+
+func (d ConfigMapDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
+	d.logger.Debug("lookup on configmap dir", zap.String("name", name))
+
+	if name == "data" {
+		return &DataDir{d.logger, d.cm.Data}, nil
+	}
+
+	if name == "json" {
+		data, err := json.MarshalIndent(d.cm, "", "  ")
+		d.logger.Debug("serialized JSON",
+			zap.String("JSON", string(data)),
+			zap.Error(err),
+		)
+		return &File{d.logger, data}, err
+	}
+
+	if name == "yaml" {
+		data, err := yaml.Marshal(d.cm)
+		d.logger.Debug("serialized YAML",
+			zap.String("YAML", string(data)),
+			zap.Error(err),
+		)
+		return &File{d.logger, data}, err
+	}
+
+	return nil, fuse.ENOENT
+}
+
+type DataDir struct {
+	logger *zap.Logger
+	data   map[string]string
+}
+
+func (d DataDir) Attr(ctx context.Context, attr *fuse.Attr) error {
+	attr.Mode = os.ModeDir
+	d.logger.Debug("attr on data dir",
+		zap.Uint32("mode", uint32(attr.Mode)),
+	)
+
+	return nil
+}
+
+func (d DataDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+	names := make([]string, 0, len(d.data))
+	for key := range d.data {
+		names = append(names, key)
+	}
+
+	d.logger.Debug("readdir on data dir",
+		zap.Strings("entries", names),
+	)
+
+	return StringsToDirents(names), nil
+}
+
+func (d DataDir) Lookup(ctx context.Context, name string) (fs.Node, error) {
+	d.logger.Debug("lookup on data dir", zap.String("name", name))
+
+	for key := range d.data {
+		if name == key {
+			return &File{d.logger, []byte(d.data[key])}, nil
+		}
+	}
+
+	return nil, fuse.ENOENT
 }

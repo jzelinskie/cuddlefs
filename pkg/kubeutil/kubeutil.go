@@ -1,10 +1,12 @@
 package kubeutil
 
 import (
+	"encoding/json"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -126,4 +128,15 @@ func ClusterResourceNames(resourceLists []*metav1.APIResourceList, err error) ([
 	}
 
 	return strutil.Dedup(names), nil
+}
+
+func UnstructuredToConfigMap(u *unstructured.Unstructured) (*corev1.ConfigMap, error) {
+	data, err := json.Marshal(u)
+	if err != nil {
+		return nil, err
+	}
+
+	var configmap corev1.ConfigMap
+	err = json.Unmarshal(data, &configmap)
+	return &configmap, err
 }
