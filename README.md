@@ -17,7 +17,7 @@ In order to compile the project, the [latest stable version of Go] and knowledge
 ```sh
 git clone git@github.com:jzelinskie/cuddlefs.git
 cd cuddlefs
-GO111MODULE=on go build .
+GO111MODULE=on go build ./cmd/cuddlefs
 ```
 
 [latest stable version of Go]: https://golang.org/dl
