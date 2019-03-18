@@ -8,13 +8,13 @@ import (
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
+	"github.com/jzelinskie/stringz"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"k8s.io/client-go/tools/clientcmd"
 
 	cuddlefs "github.com/jzelinskie/cuddlefs/pkg/fs"
 	"github.com/jzelinskie/cuddlefs/pkg/kubeutil"
-	"github.com/jzelinskie/cuddlefs/pkg/strutil"
 )
 
 func main() {
@@ -29,6 +29,7 @@ func main() {
 	rootCmd.Flags().String("volumeName", "current-context", "volume name for the mounted filesystem")
 	rootCmd.Flags().String("kubeconfig", filepath.Join(os.ExpandEnv("$HOME"), ".kube", "config"), "path to kubeconfig")
 	rootCmd.Flags().Bool("debug", false, "enable debug logging")
+	rootCmd.Flags().Bool("fusedebug", false, "enable fuse debug logging")
 
 	rootCmd.Execute()
 }
@@ -58,8 +59,12 @@ func rootRunFunc(cmd *cobra.Command, args []string) error {
 	var err error
 	if mustGetBool(cmd, "debug") {
 		logger, err = zap.NewDevelopment()
-		fuse.Debug = func(msg interface{}) {
-			logger.Debug("fuse", zap.Reflect("msg", msg))
+
+		if mustGetBool(cmd, "fusedebug") {
+			logger.Debug("enabled fuse logging")
+			fuse.Debug = func(msg interface{}) {
+				logger.Debug("fuse", zap.Reflect("msg", msg))
+			}
 		}
 	} else {
 		logger, err = zap.NewProduction()
@@ -91,8 +96,8 @@ func rootRunFunc(cmd *cobra.Command, args []string) error {
 	}
 	logger.Debug("parsed current-context", zap.String("value", currentContext))
 
-	mountName := strutil.Default(mustGetString(logger, cmd, "mountName"), currentContext, "", "current-context")
-	volumeName := strutil.Default(mustGetString(logger, cmd, "volumeName"), currentContext, "", "current-context")
+	mountName := stringz.Default(mustGetString(logger, cmd, "mountName"), currentContext, "", "current-context")
+	volumeName := stringz.Default(mustGetString(logger, cmd, "volumeName"), currentContext, "", "current-context")
 
 	c, err := fuse.Mount(
 		mountName,

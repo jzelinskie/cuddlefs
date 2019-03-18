@@ -7,6 +7,7 @@ import (
 
 	"bazil.org/fuse"
 	"bazil.org/fuse/fs"
+	"github.com/jzelinskie/stringz"
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,7 +17,6 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/jzelinskie/cuddlefs/pkg/kubeutil"
-	"github.com/jzelinskie/cuddlefs/pkg/strutil"
 )
 
 func New(logger *zap.Logger, cfg *rest.Config) (fs.FS, error) {
@@ -97,7 +97,7 @@ func (d GroupsDir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 		}
 		groupNames = append(groupNames, group)
 	}
-	groupNames = strutil.Dedup(groupNames)
+	groupNames = stringz.Dedup(groupNames)
 
 	d.logger.Debug("readdir on groups dir",
 		zap.Strings("entries", groupNames),

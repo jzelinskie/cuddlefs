@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/jzelinskie/stringz"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
@@ -13,8 +14,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
-
-	"github.com/jzelinskie/cuddlefs/pkg/strutil"
 )
 
 // CurrentContextName returns the name of cluster used in the current context.
@@ -32,7 +31,7 @@ func Namespaces(ulist *unstructured.UnstructuredList) []string {
 	for _, item := range ulist.Items {
 		namespaces = append(namespaces, item.GetNamespace())
 	}
-	return strutil.Dedup(namespaces)
+	return stringz.Dedup(namespaces)
 }
 
 // Client extends the Kubernetes client used in sigs.k8s.io/controller-runtime,
