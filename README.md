@@ -4,7 +4,7 @@
 [![Build Status Travis](https://img.shields.io/travis/jzelinskie/cuddlefs.svg?style=flat-square&&branch=master)](https://travis-ci.org/jzelinskie/cuddlefs)
 [![Godoc](http://img.shields.io/badge/go-documentation-blue.svg?style=flat-square)](https://godoc.org/github.com/jzelinskie/cuddlefs)
 [![Releases](https://img.shields.io/github/release/jzelinskie/cuddlefs/all.svg?style=flat-square)](https://github.com/jzelinskie/cuddlefs/releases)
-[![LICENSE](https://img.shields.io/github/license/jzelinskie/cuddlefs.svg?style=flat-square)](https://github.com/coreos/etcd/blob/master/LICENSE)
+[![LICENSE](https://img.shields.io/github/license/jzelinskie/cuddlefs.svg?style=flat-square)](https://github.com/jzelinskie/cuddlefs/blob/master/LICENSE)
 
 **Note**: The `master` branch may be in an *unstable or even broken state* during development. Please use [releases](https://github.com/jzelinskie/cuddlefs/releases) instead of the `master` branch in order to get stable binaries.
 
